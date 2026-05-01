@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
+  ActivityIndicator,
   FlatList,
   StyleSheet,
   Text,
@@ -9,9 +10,11 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import Doctorcard from "../components/Doctorcard";
-import { sampleDoctors } from "../data/doctors";
-import type { Doctor } from "../data/doctors";
+import DoctorCard from "../components/DoctorCard";
+import type { Doctor } from "../services/api";
+
+// ✅ Change this to your backend URL
+const BASE_URL = "http://localhost:8000";
 
 type DoctorsProfileProps = {
   navigation: {
@@ -21,37 +24,108 @@ type DoctorsProfileProps = {
 
 const DoctorsProfile = ({ navigation }: DoctorsProfileProps) => {
   const [searchText, setSearchText] = useState("");
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
   const { width } = useWindowDimensions();
   const isDesktopLike = width >= 920;
 
+  // ✅ Fetch doctors from the backend on mount
+  useEffect(() => {
+    setLoading(true);
+    setError("");
+
+    fetch(`${BASE_URL}/api/doctors`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Server error: ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        // Handle both array response and wrapped response e.g. { results: [...] }
+        const list = Array.isArray(data) ? data : data.results ?? data.doctors ?? [];
+        setDoctors(list);
+        setLoading(false);
+      })
+      .catch(() => {
+        setError("No response from server – check your backend or IP.");
+        setLoading(false);
+      });
+  }, []);
+
   const filteredDoctors = useMemo(() => {
     const query = searchText.trim().toLowerCase();
-    if (!query) return sampleDoctors;
+    if (!query) return doctors;
 
-    return sampleDoctors.filter((doctor) => {
+    return doctors.filter((doctor) => {
       const name = doctor.name?.toLowerCase() ?? "";
-      const specialty = doctor.specialty?.toLowerCase() ?? "";
-      return name.includes(query) || specialty.includes(query);
+      const specialization = doctor.specialization?.toLowerCase() ?? "";
+      return name.includes(query) || specialization.includes(query);
     });
-  }, [searchText]);
+  }, [searchText, doctors]); // ✅ depends on live doctors state
 
   const renderDoctor = ({ item }: { item: Doctor }) => {
     return (
-      <Doctorcard
+      <DoctorCard
         doctor={item}
         isDesktopLike={isDesktopLike}
-        onPressAvailability={(doctor) => navigation.navigate("AvailabilityDetails", { doctor })}
+        onPressAvailability={(doctor) =>
+          navigation.navigate("AvailabilityDetails", { doctor })
+        }
       />
     );
   };
 
+  // ✅ Loading state
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.centered}>
+        <ActivityIndicator size="large" color="#2563EB" />
+        <Text style={styles.loadingText}>Loading doctors...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // ✅ Error state with Retry button
+  if (error) {
+    return (
+      <SafeAreaView style={styles.centered}>
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={() => {
+            setLoading(true);
+            setError("");
+            fetch(`${BASE_URL}/api/doctors`)
+              .then((res) => res.json())
+              .then((data) => {
+                const list = Array.isArray(data) ? data : data.results ?? data.doctors ?? [];
+                setDoctors(list);
+                setLoading(false);
+              })
+              .catch(() => {
+                setError("No response from server – check your backend or IP.");
+                setLoading(false);
+              });
+          }}
+        >
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={[styles.pageInner, isDesktopLike && styles.pageInnerDesktop]}>
-        <Text style={[styles.screenTitle, isDesktopLike && styles.screenTitleDesktop]}>
+        <Text
+          style={[styles.screenTitle, isDesktopLike && styles.screenTitleDesktop]}
+        >
           {filteredDoctors.length} doctors available
         </Text>
-        <Text style={styles.screenSubtitle}>Book appointments with experienced doctors</Text>
+        <Text style={styles.screenSubtitle}>
+          Book appointments with experienced doctors
+        </Text>
 
         <View style={styles.searchRow}>
           <TextInput
@@ -70,9 +144,16 @@ const DoctorsProfile = ({ navigation }: DoctorsProfileProps) => {
           data={filteredDoctors}
           keyExtractor={(item) => item.id}
           renderItem={renderDoctor}
-          contentContainerStyle={[styles.listContent, isDesktopLike && styles.listContentDesktop]}
+          contentContainerStyle={[
+            styles.listContent,
+            isDesktopLike && styles.listContentDesktop,
+          ]}
           showsVerticalScrollIndicator={false}
-          ListEmptyComponent={<Text style={styles.emptyText}>No doctors found for this search.</Text>}
+          ListEmptyComponent={
+            <Text style={styles.emptyText}>
+              No doctors found for this search.
+            </Text>
+          }
         />
       </View>
     </SafeAreaView>
@@ -85,6 +166,35 @@ const styles = StyleSheet.create({
     backgroundColor: "#F8FAFC",
     paddingHorizontal: 16,
     paddingTop: 18,
+  },
+  centered: {
+    flex: 1,
+    backgroundColor: "#F8FAFC",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  loadingText: {
+    marginTop: 12,
+    color: "#6B7280",
+    fontSize: 14,
+  },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 14,
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  retryButton: {
+    backgroundColor: "#2563EB",
+    borderRadius: 22,
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+  },
+  retryButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+    fontSize: 14,
   },
   pageInner: {
     flex: 1,

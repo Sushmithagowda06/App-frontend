@@ -1,13 +1,14 @@
+import React from "react";
 import { NavigationContainer } from "@react-navigation/native";
-// Remove these two unused lines:
-// import MainNavigation from "./src/navigation/MainNavigation";
-// import { StyleSheet, Alert } from "react-native";
-import MyTab from "./src/navigation/ButtonTab";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import MainNavigation from "./src/navigation/MainNavigation";
 
 export default function App() {
   return (
-    <NavigationContainer>
-      <MyTab />
-    </NavigationContainer>
+    <SafeAreaProvider>
+      <NavigationContainer>
+        <MainNavigation />
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }

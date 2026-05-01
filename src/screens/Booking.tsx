@@ -17,6 +17,7 @@ import { RouteProp } from "@react-navigation/native";
 import type { Doctor } from "../data/doctors";
 import { createBooking, getBookingApiBaseUrl } from "../services/bookingApi";
 
+
 const MODE_OPTIONS = ["Video", "In-Clinic", "At-Home"] as const;
 
 type BookingRouteParams = {

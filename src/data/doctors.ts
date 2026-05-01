@@ -11,7 +11,7 @@ export type Slot = {
 export type Doctor = {
   id: string;
   name: string;
-  specialty: string;
+  specialization: string;
   rating: number;
   fee: number;
   photo?: string;
@@ -45,7 +45,7 @@ export const sampleDoctors: Doctor[] = [
   {
     id: "doc-1",
     name: "Dr. Sheryas",
-    specialty: "General Physician",
+    specialization: "General Physician",
     rating: 4.8,
     fee: 500,
     experience: {
@@ -70,7 +70,7 @@ export const sampleDoctors: Doctor[] = [
   {
     id: "doc-2",
     name: "Dr.Rohit",
-    specialty: "Dermatologist",
+    specialization: "Dermatologist",
     rating: 4.6,
     fee: 600,
     experience: {
@@ -92,7 +92,7 @@ export const sampleDoctors: Doctor[] = [
   {
     id: "doc-3",
     name: "Dr.Bharath",
-    specialty: "Dermatologist",
+    specialization: "Dermatologist",
     rating: 4.6,
     fee: 400,
     experience: {
@@ -114,7 +114,7 @@ export const sampleDoctors: Doctor[] = [
   {
     id: "doc-4",
     name: "Dr.Chandrashekar",
-    specialty: "Cardiologist",
+    specialization: "Cardiologist",
     rating: 4.6,
     fee: 800,
     experience: {
@@ -136,7 +136,7 @@ export const sampleDoctors: Doctor[] = [
   {
     id: "doc-5",
     name: "Dr.Soujanya",
-    specialty: "General Physician",
+    specialization: "General Physician",
     rating: 4.6,
     fee: 800,
     experience: {
@@ -158,7 +158,7 @@ export const sampleDoctors: Doctor[] = [
   {
     id: "doc-6",
     name: "Dr.Neah Naidu",
-    specialty: "General Physician",
+    specialization: "General Physician",
     rating: 4.6,
     fee: 700,
     experience: {
@@ -180,7 +180,7 @@ export const sampleDoctors: Doctor[] = [
   {
     id: "doc-7",
     name: "Dr.Hemanth",
-    specialty: "General Physician",
+    specialization: "General Physician",
     rating: 4.6,
     fee: 500,
     experience: {
@@ -202,7 +202,7 @@ export const sampleDoctors: Doctor[] = [
   {
     id: "doc-8",
     name: "Dr.Anudeep",
-    specialty: "General Physician",
+    specialization: "General Physician",
     rating: 4.6,
     fee: 600,
     experience: {

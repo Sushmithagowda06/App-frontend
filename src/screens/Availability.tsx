@@ -16,15 +16,13 @@ import { RouteProp } from "@react-navigation/native";
 import ConsultationModeToggle, { ConsultMode } from "../components/ConsultationMode";
 import CustomTimeSlotPicker from "../components/CustomTimeSlotPicker";
 import DateSelector from "../components/Dateselector";
-import DoctorCard from "../components/Doctorcard";
+import DoctorCard from "../components/DoctorCard";
 import TimeSlotsGrid, { TimeSlot } from "../components/TimeSlot";
 import type { Doctor } from "../data/doctors";
 import { getAvailableSlots } from "../services/bookingApi";
 
 const API_BASE_URL =
-  Platform.OS === "android"
-    ? "http://10.0.2.2:8000"
-    : "http://localhost:8000";
+  Platform.OS === "android" ? "http://10.0.2.2:8000" : "http://localhost:8000";
 
 const DAYS_TO_SHOW = 7;
 
@@ -46,7 +44,7 @@ const buildUpcomingDates = () => {
 const upcomingDates = buildUpcomingDates();
 
 type AvailabilityRouteParams = {
-  AvailabilityDetails: { doctor?: Doctor };
+  AvailabilityDetails: { doctor?: Doctor; doctorId?: string };
 };
 
 type DoctorAvailabilityScreenProps = {
@@ -61,14 +59,13 @@ const DoctorAvailabilityScreen = ({ route, navigation }: DoctorAvailabilityScree
   const [selectedDateKey, setSelectedDateKey] = useState(upcomingDates[0].key);
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [loadingDoctors, setLoadingDoctors] = useState(false);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slotError, setSlotError] = useState("");
   const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([]);
   const [activeDoctor, setActiveDoctor] = useState<Doctor | null>(route?.params?.doctor ?? null);
-  const [suggestedDoctors, setSuggestedDoctors] = useState<Doctor[]>([]);
   const [suggestionModalOpen, setSuggestionModalOpen] = useState(false);
-  const [customSlotLabel, setCustomSlotLabel] = useState(""); // ← NEW
+  const [suggestedDoctors, setSuggestedDoctors] = useState<Doctor[]>([]);
+  const [customSlotLabel, setCustomSlotLabel] = useState("");
 
   const selectedDoctor = activeDoctor;
 
@@ -105,7 +102,7 @@ const DoctorAvailabilityScreen = ({ route, navigation }: DoctorAvailabilityScree
     return hour * 60 + minute;
   };
 
-  const applyCustomSlot = (value: string) => {
+  const applyCustomSlot = async (value: string) => {
     if (!selectedDoctor) return;
     const normalized = normalizeSlotLabel(value);
     if (!normalized) {
@@ -113,36 +110,65 @@ const DoctorAvailabilityScreen = ({ route, navigation }: DoctorAvailabilityScree
       return;
     }
 
-    setCustomSlotLabel(normalized); // ← SAVE custom slot label
-
     const matched = availableSlots.find((slot) => slot.label === normalized);
     if (!matched) {
+      setCustomSlotLabel(normalized);
       const customMinutes = toMinutesFrom12h(normalized);
-      const matchingDoctors =
-        customMinutes === null
-          ? []
-          : (doctors as any[]).filter((doc) => {
-              if (!doc?.available_from || !doc?.available_to) return false;
-              const from = toMinutesFrom24h(String(doc.available_from));
-              const to = toMinutesFrom24h(String(doc.available_to));
+      const candidates = customMinutes === null
+        ? []
+        : (doctors as any[])
+            .filter((doc) => doc?.id !== selectedDoctor.id)
+            .filter((doc) => {
+              const from = toMinutesFrom24h(String(doc?.available_from ?? ""));
+              const to = toMinutesFrom24h(String(doc?.available_to ?? ""));
               if (from === null || to === null) return false;
               return customMinutes >= from && customMinutes < to;
             });
-      const suggested = matchingDoctors.filter((doc) => doc?.id !== selectedDoctor.id);
-      setSuggestedDoctors(suggested.slice(0, 6));
+
+      const customSlotMinutes = toMinutesFrom12h(normalized);
+
+      // Keep only doctors whose live available-slots still include this time.
+      const withBookingStatus = await Promise.all(
+        candidates.map(async (doc) => {
+          try {
+            const res = await fetch(
+              `${API_BASE_URL}/api/doctors/${encodeURIComponent(doc.id)}/available-slots?date=${encodeURIComponent(selectedDateKey)}`
+            );
+            if (!res.ok) {
+              return { doc, blocked: true };
+            }
+            const payload = await res.json();
+            const available = Array.isArray(payload?.slots) ? payload.slots : [];
+            const slotStillOpen = available.some(
+              (slot: string) => toMinutesFrom12h(String(slot ?? "")) === customSlotMinutes
+            );
+            return { doc, blocked: !slotStillOpen };
+          } catch {
+            // If availability check fails, do not suggest to avoid false positives.
+            return { doc, blocked: true };
+          }
+        })
+      );
+
+      const suggested = withBookingStatus
+        .filter((item) => !item.blocked)
+        .map((item) => item.doc)
+        .slice(0, 6);
+      setSuggestedDoctors(suggested);
       const suggestedNames = suggested.map((doc) => doc?.name).slice(0, 5);
 
       notify(
         "Doctor unavailable",
-        suggestedNames.length > 0
-          ? `This doctor is not available at ${normalized}.\n\nAvailable doctors at this time:\n- ${suggestedNames.join("\n- ")}`
-          : `This doctor is not available at ${normalized}.\n\nNo other doctors are currently available at this time.`
+        suggestedNames.length
+          ? `This doctor is not available at ${normalized}.`
+          : `This doctor is not available at ${normalized}.`
       );
-      if (suggested.length > 0) {
-        setSuggestionModalOpen(true);
+      if (suggested.length) {
+        setTimeout(() => setSuggestionModalOpen(true), 50);
       }
       return;
     }
+
     setSelectedSlot(matched);
   };
 
@@ -153,6 +179,13 @@ const DoctorAvailabilityScreen = ({ route, navigation }: DoctorAvailabilityScree
   useEffect(() => {
     setActiveDoctor(route?.params?.doctor ?? null);
   }, [route?.params?.doctor]);
+
+  useEffect(() => {
+    const routeDoctorId = route?.params?.doctorId;
+    if (!routeDoctorId || activeDoctor?.id === routeDoctorId) return;
+    const matched = doctors.find((d) => d.id === routeDoctorId);
+    if (matched) setActiveDoctor(matched);
+  }, [route?.params?.doctorId, doctors, activeDoctor?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -167,13 +200,7 @@ const DoctorAvailabilityScreen = ({ route, navigation }: DoctorAvailabilityScree
         setSlotError("");
         const slots = await getAvailableSlots(selectedDoctor.id, selectedDateKey);
         if (cancelled) return;
-        setAvailableSlots(
-          slots.map((label) => ({
-            id: label,
-            label,
-            available: true,
-          }))
-        );
+        setAvailableSlots(slots.map((label) => ({ id: label, label, available: true })));
       } catch (error: any) {
         if (!cancelled) {
           setAvailableSlots([]);
@@ -184,34 +211,28 @@ const DoctorAvailabilityScreen = ({ route, navigation }: DoctorAvailabilityScree
       }
     };
     fetchSlots();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [selectedDoctor, selectedDateKey]);
 
   useEffect(() => {
     let cancelled = false;
     const fetchDoctors = async () => {
       try {
-        setLoadingDoctors(true);
         const r = await fetch(
           `${API_BASE_URL}/api/doctors?date=${selectedDateKey}&mode=${encodeURIComponent(mode)}`
         );
         const payload = await r.json();
-        console.log("API doctor sample:", JSON.stringify(payload.doctors?.[0]));
-        if (!cancelled && r.ok) {
-          const mapped = (payload.doctors ?? []).map((doc: any) => ({
-            ...doc,
-            fee: doc.fee ?? doc.consultation_fee ?? doc.consultationFee ?? doc.price ?? 0,
-          }));
-          setDoctors(mapped);
-        }
+        if (!cancelled && r.ok) setDoctors(payload.doctors ?? []);
       } catch {
         if (!cancelled) setDoctors([]);
-      } finally {
-        if (!cancelled) setLoadingDoctors(false);
       }
     };
     fetchDoctors();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [mode, selectedDateKey]);
 
   const selectedSummary = useMemo(() => {
@@ -229,7 +250,7 @@ const DoctorAvailabilityScreen = ({ route, navigation }: DoctorAvailabilityScree
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Doctor Availability</Text>
-        <Text style={styles.subtitle}>Choose your doctor, date, and time slot</Text>
+        <Text style={styles.subtitle}>Choose date and slot for selected doctor</Text>
       </View>
 
       <ConsultationModeToggle value={mode} onChange={setMode} />
@@ -245,14 +266,15 @@ const DoctorAvailabilityScreen = ({ route, navigation }: DoctorAvailabilityScree
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {selectedDoctor ? (
-          <View style={styles.selectedDoctorBlock}>
-            <DoctorCard doctor={selectedDoctor} showAvailabilityButton={false} />
+        {!selectedDoctor ? (
+          <View style={styles.feedbackBox}>
+            <Text style={styles.feedbackText}>Click Check Availability from a doctor card first.</Text>
           </View>
-        ) : null}
-
-        {selectedDoctor ? (
+        ) : (
           <>
+            <View style={styles.selectedDoctorBlock}>
+              <DoctorCard doctor={selectedDoctor} showAvailabilityButton={false} />
+            </View>
             <CustomTimeSlotPicker onApply={applyCustomSlot} disabled={loadingSlots} />
             {loadingSlots ? (
               <View style={styles.feedbackBox}>
@@ -275,26 +297,11 @@ const DoctorAvailabilityScreen = ({ route, navigation }: DoctorAvailabilityScree
               />
             )}
           </>
-        ) : null}
-
-        {loadingDoctors ? (
-          <View style={styles.feedbackBox}>
-            <ActivityIndicator size="small" color="#2563EB" />
-            <Text style={styles.feedbackText}>Loading doctors...</Text>
-          </View>
-        ) : !selectedDoctor && doctors.length > 0 ? (
-          doctors.map((doc) => (
-            <View key={doc.id} style={styles.listItem}>
-              <DoctorCard doctor={doc} showAvailabilityButton={false} />
-            </View>
-          ))
-        ) : null}
+        )}
       </ScrollView>
 
       <View style={styles.bottomBar}>
-        <Text style={styles.selectionText}>
-          {selectedSummary ?? "Select a slot to continue"}
-        </Text>
+        <Text style={styles.selectionText}>{selectedSummary ?? "Select a slot to continue"}</Text>
         <TouchableOpacity
           style={[styles.bookBtn, !canBook && styles.bookBtnDisabled]}
           disabled={!canBook}
@@ -312,7 +319,6 @@ const DoctorAvailabilityScreen = ({ route, navigation }: DoctorAvailabilityScree
         </TouchableOpacity>
       </View>
 
-      {/* Suggestion Modal */}
       <Modal
         transparent
         visible={suggestionModalOpen}
@@ -321,26 +327,18 @@ const DoctorAvailabilityScreen = ({ route, navigation }: DoctorAvailabilityScree
       >
         <Pressable style={styles.modalBackdrop} onPress={() => setSuggestionModalOpen(false)} />
         <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>Available Doctors at {customSlotLabel}</Text>
+          <Text style={styles.modalTitle}>Available doctors at {customSlotLabel}</Text>
           <ScrollView showsVerticalScrollIndicator={false}>
             {suggestedDoctors.map((doc) => (
               <View key={doc.id} style={styles.modalOption}>
-                {/* Doctor Info */}
                 <View style={styles.modalDocInfo}>
                   <Text style={styles.modalOptionText}>{doc.name}</Text>
                   <Text style={styles.modalOptionSub}>
-                    {(doc as any).specialty ?? (doc as any).specialization ?? "Doctor"} •{" "}
-                    {(doc as any).experience?.years ?? (doc as any).experience_years ?? 0} yrs
-                  </Text>
-                  <Text style={styles.modalOptionFee}>
-                    Rs {(doc as any).fee ?? (doc as any).consultation_fee ?? "N/A"}
+                    {(doc as any).specialization ?? (doc as any).specialty ?? "Doctor"}
                   </Text>
                 </View>
-
-                {/* Book Now Button */}
                 <TouchableOpacity
                   style={styles.bookNowBtn}
-                  activeOpacity={0.8}
                   onPress={() => {
                     setSuggestionModalOpen(false);
                     navigation.navigate("Booking", {
@@ -370,7 +368,6 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 140 },
   selectedDoctorBlock: { paddingHorizontal: 16, paddingTop: 20 },
-  listItem: { paddingHorizontal: 16, paddingTop: 10 },
   feedbackBox: {
     backgroundColor: "#FFFFFF",
     borderRadius: 15,
@@ -434,7 +431,6 @@ const styles = StyleSheet.create({
   modalDocInfo: { flex: 1, marginRight: 10 },
   modalOptionText: { color: "#1F2937", fontSize: 14, fontWeight: "700" },
   modalOptionSub: { color: "#64748B", fontSize: 12, marginTop: 2 },
-  modalOptionFee: { color: "#2563EB", fontSize: 12, fontWeight: "600", marginTop: 2 },
   bookNowBtn: {
     backgroundColor: "#2563EB",
     borderRadius: 8,
