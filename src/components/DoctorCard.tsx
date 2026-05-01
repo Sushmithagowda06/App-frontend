@@ -35,7 +35,7 @@ export default function DoctorCard({
   showAvailabilityButton = true,
   onPress,
 }: DoctorCardProps) {
-  const specialization = doctor.specialty ?? "-";
+  const specialization = doctor.specialization ?? "-";
   const rating = doctor.rating ?? "-";
   const experience = getExperienceLabel(doctor.experience);
   const recommendation = getRecommendationLabel(doctor.rating);
